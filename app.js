@@ -1,263 +1,65 @@
-const TWO_DAYS_SECONDS = 2 * 24 * 60 * 60;
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ephemeral File Link (2 day auto-delete)</title>
+  <!-- Added Google Font: Stack Sans Text -->
+  <link href="https://fonts.googleapis.com/css2?family=Stack+Sans+Text:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Ephemeral File Link</h1>
+    <p class="muted">Select a file, upload it and get a direct-download URL. Files will be marked to expire in 2 days.</p>
 
-const fileInput = document.getElementById("fileInput");
-const fileName = document.getElementById("fileName");
-const uploadBtn = document.getElementById("uploadBtn");
-const clearBtn = document.getElementById("clearBtn");
-const status = document.getElementById("status");
-const result = document.getElementById("result");
-const directUrl = document.getElementById("directUrl");
-const copyBtn = document.getElementById("copyBtn");
-const openBtn = document.getElementById("openBtn");
-const uploadsList = document.getElementById("uploadsList");
-const cleanupAll = document.getElementById("cleanupAll");
-const purgeLocal = document.getElementById("purgeLocal");
-const lifetimeSelect = document.getElementById("lifetime");
+    <form id="uploadForm" class="card">
+      <label class="fileRow">
+        <input id="fileInput" type="file" />
+        <span id="fileName">No file chosen</span>
+      </label>
 
-let currentFile = null;
+      <div class="row">
+        <label>
+          Link lifetime:
+          <select id="lifetime">
+            <option value="2">2 days (default)</option>
+            <option value="1">1 day</option>
+            <option value="7">7 days</option>
+          </select>
+        </label>
+      </div>
 
-function fmtDate(ts) {
-  return new Date(ts).toLocaleString();
-}
+      <div class="row actions">
+        <button id="uploadBtn" type="button">Upload & Get Link</button>
+        <button id="clearBtn" type="button" class="ghost">Clear</button>
+      </div>
 
-function loadLocalIndex() {
-  try {
-    const raw = localStorage.getItem("ephemeral_uploads");
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-function saveLocalIndex(list) {
-  localStorage.setItem("ephemeral_uploads", JSON.stringify(list));
-}
+      <div id="status" class="status" aria-live="polite"></div>
+      <div id="result" class="result" hidden>
+        <label>Direct download link (copy/share):</label>
+        <div class="resultRow">
+          <input id="directUrl" readonly />
+          <button id="copyBtn">Copy</button>
+          <a id="openBtn" target="_blank" rel="noopener" class="ghost">Open</a>
+        </div>
+        <p class="muted small">Link will be automatically removed after its expiry. See below for management.</p>
+      </div>
+    </form>
 
-function addLocalRecord(record) {
-  const list = loadLocalIndex();
-  list.unshift(record);
-  saveLocalIndex(list);
-  renderUploads();
-}
+    <section class="card" id="manage">
+      <h2>Uploads (local index)</h2>
+      <p class="muted small">This list is stored in your browser and used to show expiry and attempt cleanup. If you want to force-delete a file try the Cleanup button for each item — it will try to call the provider delete API if available.</p>
+      <ul id="uploadsList" class="uploads"></ul>
+      <div class="row">
+        <button id="cleanupAll" class="ghost">Attempt Cleanup Now</button>
+        <button id="purgeLocal" class="danger">Purge Local Records</button>
+      </div>
+    </section>
 
-function renderUploads() {
-  const list = loadLocalIndex();
-  uploadsList.innerHTML = "";
-  if (list.length === 0) {
-    uploadsList.innerHTML = "<li class='muted small'>No uploads yet</li>";
-    return;
-  }
-  list.forEach((r, i) => {
-    const li = document.createElement("li");
-    const left = document.createElement("div");
-    left.innerHTML = `<strong>${escapeHtml(r.name)}</strong><div class="small muted">expires: ${fmtDate(r.expiresAt)}</div><div class="small muted">uploaded: ${fmtDate(r.uploadedAt)}</div>`;
-    const right = document.createElement("div");
-    right.style.display = "flex";
-    right.style.gap = "8px";
-    const open = document.createElement("a");
-    open.href = r.url;
-    open.target = "_blank";
-    open.textContent = "Open";
-    open.className = "ghost";
-    const copy = document.createElement("button");
-    copy.textContent = "Copy";
-    copy.onclick = () => navigator.clipboard.writeText(r.url).then(() => alert("Copied"));
-    const attempt = document.createElement("button");
-    attempt.textContent = "Cleanup";
-    attempt.className = "ghost";
-    attempt.onclick = async () => {
-      attempt.disabled = true;
-      await attemptDeleteRecord(r, i);
-      attempt.disabled = false;
-    };
-    right.appendChild(open);
-    right.appendChild(copy);
-    right.appendChild(attempt);
-    li.appendChild(left);
-    li.appendChild(right);
-    uploadsList.appendChild(li);
-  });
-}
+    <footer class="muted small">Note: This app depends on the hosting environment's upload API. Uploaded files are given an expiry timestamp in metadata and stored locally so we can attempt deletion after expiry. Actual deletion depends on the storage provider.</footer>
+  </main>
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
-}
-
-fileInput.addEventListener("change", (e) => {
-  const f = e.target.files && e.target.files[0];
-  currentFile = f || null;
-  fileName.textContent = f ? `${f.name} (${Math.round(f.size / 1024)} KB)` : "No file chosen";
-});
-
-clearBtn.addEventListener("click", () => {
-  fileInput.value = "";
-  currentFile = null;
-  fileName.textContent = "No file chosen";
-  status.textContent = "";
-  result.hidden = true;
-});
-
-copyBtn.addEventListener("click", () => {
-  navigator.clipboard.writeText(directUrl.value).then(() => {
-    status.textContent = "Copied link to clipboard";
-    setTimeout(() => status.textContent = "", 1500);
-  });
-});
-
-uploadBtn.addEventListener("click", async () => {
-  if (!currentFile) {
-    status.textContent = "Choose a file first";
-    return;
-  }
-  uploadBtn.disabled = true;
-  status.textContent = "Uploading...";
-  try {
-    // compute expiry
-    const days = parseInt(lifetimeSelect.value || "2", 10);
-    const now = Math.floor(Date.now() / 1000);
-    const expiresAt = now + days * 24 * 60 * 60;
-
-    // We use window.websim.upload (provided in environment) to upload file and get a public URL.
-    // We include an "expires_at" field in metadata so the backend/storage can pick it up if supported.
-    const options = {
-      // metadata object is optional — providers may or may not store it.
-      metadata: {
-        ephemeral: "true",
-        expires_at: expiresAt.toString(),
-      },
-    };
-
-    // websim.upload returns the public URL of the uploaded blob (see environment).
-    if (!window.websim || typeof window.websim.upload !== "function") {
-      throw new Error("Upload API (websim.upload) is not available in this environment.");
-    }
-
-    const url = await window.websim.upload(currentFile, options);
-
-    // Create a direct-download URL variant:
-    // Many providers already return a direct URL that downloads the file.
-    // If the returned url supports query params for forcing download we append `?download=1` conservatively.
-    const direct = url.includes("?") ? `${url}&download=1` : `${url}?download=1`;
-
-    // show result
-    directUrl.value = direct;
-    openBtn.href = direct;
-    result.hidden = false;
-    status.textContent = "Upload complete";
-
-    // store local record for management UI
-    addLocalRecord({
-      name: currentFile.name,
-      url: direct,
-      uploadedAt: Date.now(),
-      expiresAt: expiresAt * 1000,
-      rawUrl: url,
-    });
-  } catch (err) {
-    console.error(err);
-    status.textContent = "Upload failed: " + (err.message || err);
-  } finally {
-    uploadBtn.disabled = false;
-  }
-});
-
-async function attemptDeleteRecord(record, index) {
-  status.textContent = `Attempting to delete ${record.name} ...`;
-  // Some hosting environments expose websim.delete or websim.remove — try them.
-  try {
-    if (window.websim && typeof window.websim.delete === "function") {
-      await window.websim.delete(record.rawUrl);
-      status.textContent = "Deleted (via websim.delete)";
-    } else if (window.websim && typeof window.websim.remove === "function") {
-      await window.websim.remove(record.rawUrl);
-      status.textContent = "Deleted (via websim.remove)";
-    } else {
-      // If no delete API available, we mark as expired locally so UI removes it later.
-      status.textContent = "No remote delete API available; marked locally as expired.";
-    }
-  } catch (err) {
-    console.warn("delete failed", err);
-    status.textContent = "Delete attempt failed: " + (err.message || err);
-  } finally {
-    // Remove the record from local index (regardless of remote result) if it's expired or user requested cleanup
-    const list = loadLocalIndex();
-    // remove the exact matching url entry
-    const newList = list.filter((r) => r.url !== record.url);
-    saveLocalIndex(newList);
-    renderUploads();
-    setTimeout(() => status.textContent = "", 2000);
-  }
-}
-
-cleanupAll.addEventListener("click", async () => {
-  const list = loadLocalIndex();
-  if (list.length === 0) {
-    status.textContent = "No uploads to process";
-    return;
-  }
-  cleanupAll.disabled = true;
-  status.textContent = "Running cleanup attempts...";
-  for (const r of list) {
-    // attempt delete for items past expiry
-    if (Date.now() >= r.expiresAt) {
-      // we call attemptDeleteRecord but it removes entry from local list
-      // wrap to avoid stopping on errors
-      try { await attemptDeleteRecord(r); } catch (e) { console.warn(e); }
-    }
-  }
-  status.textContent = "Cleanup complete (local index updated)";
-  cleanupAll.disabled = false;
-  setTimeout(() => status.textContent = "", 2000);
-});
-
-purgeLocal.addEventListener("click", () => {
-  if (!confirm("Remove all local upload records? This does not delete remote files.")) return;
-  localStorage.removeItem("ephemeral_uploads");
-  renderUploads();
-});
-
-function removeExpiredRecordsOnLoad() {
-  const list = loadLocalIndex();
-  const now = Date.now();
-  const keep = list.filter((r) => r.expiresAt > now);
-  if (keep.length !== list.length) saveLocalIndex(keep);
-}
-
-// initial render
-removeExpiredRecordsOnLoad();
-renderUploads();
-
-// Utility: small safeguard in case environment doesn't provide websim
-if (!window.websim) {
-  window.websim = {
-    // try uploading to file.io first, otherwise fall back to a temporary blob URL
-    async upload(file, options = {}) {
-      const days = options?.metadata?.expires_at
-        ? Math.ceil((parseInt(options.metadata.expires_at, 10) - Math.floor(Date.now()/1000)) / (24*60*60))
-        : 2;
-      try {
-        const form = new FormData();
-        form.append("file", file);
-        // file.io supports expires parameter like "1d" or "14d"; use days (min 1)
-        const expires = `${Math.max(1, days)}d`;
-        const res = await fetch(`https://file.io/?expires=${encodeURIComponent(expires)}`, {
-          method: "POST",
-          body: form,
-        });
-        const json = await res.json();
-        if (json && json.success && json.link) {
-          // file.io returns a link that serves a download page; use raw link if available
-          return json.link;
-        } else {
-          throw new Error("file.io upload failed");
-        }
-      } catch (err) {
-        // fallback: create an in-memory blob URL (only valid while session/tab open)
-        console.warn("Remote upload failed, using local blob URL fallback:", err);
-        const blobUrl = URL.createObjectURL(file);
-        return blobUrl;
-      }
-    },
-    async delete() { throw new Error("Delete not supported in fallback"); },
-    async remove() { throw new Error("Remove not supported in fallback"); },
-  };
-}
+  <script type="module" src="app.js"></script>
+</body>
+</html>
