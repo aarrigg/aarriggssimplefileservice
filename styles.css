@@ -1,12 +1,13 @@
 :root{
-  --bg: #fff;
-  --card: #f7f7f8;
+  --bg: #9c2828;
+  --card: #bd3232;
   --text: #0a0a0a;
-  --muted: #6b6b6f;
+  --muted: #000000;
   --accent: #111;
   --danger: #b42323;
   --radius: 10px;
-  font-family: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  /* Use Stack Sans Text as primary font, fallbacks preserved */
+  font-family: "Stack Sans Text", "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 }
 
 *{box-sizing:border-box}
@@ -63,4 +64,3 @@ button:disabled{opacity:0.5;cursor:default}
 .uploads li{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed rgba(0,0,0,0.03)}
 .small{font-size:12px}
 .muted{color:var(--muted)}
-
