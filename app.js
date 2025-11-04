@@ -229,7 +229,35 @@ renderUploads();
 // Utility: small safeguard in case environment doesn't provide websim
 if (!window.websim) {
   window.websim = {
-    // noop upload that throws to explain missing environment
-    async upload() { throw new Error("websim.upload not available in this environment. The app expects window.websim.upload(file, options) to be provided by the host."); }
+    // try uploading to file.io first, otherwise fall back to a temporary blob URL
+    async upload(file, options = {}) {
+      const days = options?.metadata?.expires_at
+        ? Math.ceil((parseInt(options.metadata.expires_at, 10) - Math.floor(Date.now()/1000)) / (24*60*60))
+        : 2;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        // file.io supports expires parameter like "1d" or "14d"; use days (min 1)
+        const expires = `${Math.max(1, days)}d`;
+        const res = await fetch(`https://file.io/?expires=${encodeURIComponent(expires)}`, {
+          method: "POST",
+          body: form,
+        });
+        const json = await res.json();
+        if (json && json.success && json.link) {
+          // file.io returns a link that serves a download page; use raw link if available
+          return json.link;
+        } else {
+          throw new Error("file.io upload failed");
+        }
+      } catch (err) {
+        // fallback: create an in-memory blob URL (only valid while session/tab open)
+        console.warn("Remote upload failed, using local blob URL fallback:", err);
+        const blobUrl = URL.createObjectURL(file);
+        return blobUrl;
+      }
+    },
+    async delete() { throw new Error("Delete not supported in fallback"); },
+    async remove() { throw new Error("Remove not supported in fallback"); },
   };
 }
